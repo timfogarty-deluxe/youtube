@@ -1,12 +1,16 @@
 <?php
-
+/*
+ * changes from JoeDawson/youtube
+ * 		- make chunkSize a class variable, create setter.  use in both upload and withThumbnail 
+ * 		- don't read $accessToken from database, instead pass in using getter and setter
+ * 		- for upload, don't check if file exists, as may be remote
+ * 		- for upload, pass filesize in $data, as filesize() won't work for remote files
+ */
 namespace Dawson\Youtube;
 
 use Exception;
-use Carbon\Carbon;
 use Google_Client;
 use Google_Service_YouTube;
-use Illuminate\Support\Facades\DB;
 
 class Youtube
 {
@@ -51,6 +55,31 @@ class Youtube
      * @var string
      */
     private $thumbnailUrl;
+    
+    /**
+     * Chunk size for upload
+     * 
+     * @var int
+     */
+    private $chunkSize = 1 * 1024 * 1024;
+    
+    public function setChunksize( $val ) {
+    	$this->chunkSize = $val;
+    	return $this;
+    }
+    
+    /**
+     * Access Token
+     */
+    
+    public function setAccessToken( $accessToken) {
+    	$this->client->setAccessToken($accessToken);
+    	return $this;
+    }
+    
+    public function getAccessToken() {
+    	return $this->client->getAccessToken();		// may have been refreshed
+    }
 
     /**
      * Constructor
@@ -64,14 +93,14 @@ class Youtube
         $this->client = $this->setup($client);
 
         $this->youtube = new \Google_Service_YouTube($this->client);
-
-        if ($accessToken = $this->getLatestAccessTokenFromDB()) {
-            $this->client->setAccessToken($accessToken);
-        }
     }
     
     /**
      * Upload the video to YouTube
+     * 
+     * changes from original:
+     * 		- remove check for video as it may be remote
+     * 		- require filesize be passed in via $data as it may be remote
      * 
      * @param  string $path
      * @param  array  $data
@@ -80,10 +109,6 @@ class Youtube
      */
     public function upload($path, array $data = [], $privacyStatus = 'public')
     {
-        if(!file_exists($path)) {
-            throw new Exception('Video file does not exist at path: "'. $path .'". Provide a full path to the file before attempting to upload.');
-        }
-
         $this->handleAccessToken();
 
         try {
@@ -94,6 +119,8 @@ class Youtube
             if (array_key_exists('description', $data)) $snippet->setDescription($data['description']);
             if (array_key_exists('tags', $data))        $snippet->setTags($data['tags']);
             if (array_key_exists('category_id', $data)) $snippet->setCategoryId($data['category_id']);
+            
+            $filesize = $data['filesize'] ?? filesize($path);
 
             // Set the Privacy Status
             $status = new \Google_Service_YouTube_VideoStatus();
@@ -103,9 +130,6 @@ class Youtube
             $video = new \Google_Service_YouTube_Video();
             $video->setSnippet($snippet);
             $video->setStatus($status);
-
-            // Set the Chunk Size
-            $chunkSize = 1 * 1024 * 1024;
 
             // Set the defer to true
             $this->client->setDefer(true);
@@ -120,18 +144,21 @@ class Youtube
                 'video/*',
                 null,
                 true,
-                $chunkSize
+                $this->chunkSize
             );
 
             // Set the Filesize
-            $media->setFileSize(filesize($path));
+            $media->setFileSize($filesize);
 
             // Read the file and upload in chunks
             $status = false;
-            $handle = fopen($path, "rb");
-
+            if( !$handle = fopen($path, "rb") ) {
+            	throw new Exception('Error opening video file "$path"');
+            }
+            
+            
             while (!$status && !feof($handle)) {
-                $chunk = fread($handle, $chunkSize);
+                $chunk = fread($handle, $this->chunkSize);
                 $status = $media->nextChunk($chunk);
             }
 
@@ -166,8 +193,6 @@ class Youtube
         try {
             $videoId = $this->getVideoId();
 
-            $chunkSizeBytes = 1 * 1024 * 1024;
-
             $this->client->setDefer(true);
 
             $setRequest = $this->youtube->thumbnails->set($videoId);
@@ -178,15 +203,17 @@ class Youtube
                 'image/png',
                 null,
                 true,
-                $chunkSizeBytes
+                $this->chunkSize
             );
-            $media->setFileSize(filesize($imagePath));
+            
+            $filesize = $data['filesize'] ?? filesize($imagePath);
+            $media->setFileSize($filesize);
 
             $status = false;
             $handle = fopen($imagePath, "rb");
 
             while (!$status && !feof($handle)) {
-                $chunk  = fread($handle, $chunkSizeBytes);
+            	$chunk  = fread($handle, $this->chunkSize);
                 $status = $media->nextChunk($chunk);
             }
 
@@ -300,33 +327,6 @@ class Youtube
     }
 
     /**
-     * Saves the access token to the database.
-     *
-     * @param  string  $accessToken
-     */
-    public function saveAccessTokenToDB($accessToken)
-    {
-        return DB::table('youtube_access_tokens')->insert([
-            'access_token' => json_encode($accessToken),
-            'created_at'   => Carbon::createFromTimestamp($accessToken['created'])
-        ]);
-    }
-
-    /**
-     * Get the latest access token from the database.
-     * 
-     * @return string
-     */
-    public function getLatestAccessTokenFromDB()
-    {
-        $latest = DB::table('youtube_access_tokens')
-                    ->latest('created_at')
-                    ->first();
-
-        return $latest ? (is_array($latest) ? $latest['access_token'] : $latest->access_token ) : null;
-    }
-
-    /**
      * Handle the Access Token
      * 
      * @return void
@@ -346,11 +346,9 @@ class Youtube
             {
                 // Refresh the access token
                 $this->client->refreshToken($accessToken->refresh_token);
-
-                // Save the access token
-                $this->saveAccessTokenToDB($this->client->getAccessToken());
             }
         }
+        return $this->client->getAccessToken();
     }
 
     /**

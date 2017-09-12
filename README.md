@@ -1,42 +1,48 @@
-# Laravel 5 - YouTube Video Upload
+# Laravel/Lumen 5 - YouTube Video Upload
 
-**Please note, that this package will only work with a single YouTube account and does not support multiple accounts.**
+###Fork of JoeDawson/youtube
+
+1. remove session info as Lumen is stateless
+2. pass account tokens to methods to support multiple accounts
+3. remove database
+4. for uploads, pass in filesize as path may be remote
+
 
 ## Installation
 
-To install, use the following to pull the package in via Composer.
+To install, add the following to composer.json
 
 ```
-composer require dawson/youtube
+    "repositories" : [
+    	{ "type": "vcs", "url":"https://github.com/timfogarty-deluxe/youtube" }
+    ],
+    "require": {
+    	...
+    	"dawson/youtube": "tf4.0.1"
+    }
 ```
 
-Now register the Service provider in `config/app.php`
+You may need to do composer clearcache and composer update
+
+You may need to generate a new github token on composer install
+
+
+Now register the Service provider in `bootstrap/app.php`
 
 ```php
-'providers' => [
-    ...
-    Dawson\Youtube\YoutubeServiceProvider::class,
-],
+	$app->register(Dawson\Youtube\YoutubeServiceProvider::class);
 ```
 
 And also add the alias to the same file.
 
 ```php
-'aliases' => [
-    ...
-    'Youtube' => Dawson\Youtube\Facades\Youtube::class,
-],
+	class_alias(Dawson\Youtube\Facades\Youtube::class, 'Youtube' );
 ```
 
 ## Configuration
 
-You now need to publish the `youtube.php` config and migrations.
+Now copy `vendor/dawson/youtube/config/youtube.php` to `/config`
 
-```
-php artisan vendor:publish --provider="Dawson\Youtube\YoutubeServiceProvider"
-```
-
-Now you'll want to run `php artisan migrate` to create the `youtube_access_tokens` table which as you would imagine, will contain your access tokens once you're authenticated correctly.
 
 ### Obtaining your Credentials
 
@@ -55,19 +61,9 @@ GOOGLE_CLIENT_SECRET=YOUR_SECRET
 
 ### Authentication
 
-For security reasons, the routes to authorize your channel with your Laravel application for disabled by default. You will need to enable them in your `config/youtube.php` before doing the following.
-
-Now your application is configured, we'll go through the inital authentication with Google. By default, the authorization route is `/youtube/auth`. Simply visit this URI in your application and you will be redirect to Google to authenticate your YouTube account.
-
-Assuming you were not presented with any errors during authentication, you will be redirected back to your application root. (`/`).
 
 ### Reviewing your Token
 
-Previously, users of this package have reported issues with their access token(s). To ensure you have the correct token, you simply need to review the `youtube_access_tokens` table you migrated earlier and review the value in the `access_token` column.
-
-**You need to check that a `refresh_token` exists within this value. If this is correct, you're all set to begin uploading.**
-
-You will also want to disable the routes used for authorization as they will no longer be required since you are now autheticated. The token you just reviewed, assuming as a `refresh_token` will automatically be handled. 
 
 # Upload a Video
 
@@ -76,11 +72,14 @@ To upload a video, you simply need to pass the **full** path to your video you w
 Here's an example:
 
 ```php
-$video = Youtube::upload($fullPathToVideo, [
-    'title'       => 'My Awesome Video',
-    'description' => 'You can also specify your video description here.',
-    'tags'	      => ['foo', 'bar', 'baz'],
-    'category_id' => 10
+$video = Youtube::setAccessToken($accessToken)
+	->setChunksize( 4*1024*1024 )
+	->upload($fullPathToVideo, [
+	    'title'       => 'My Awesome Video',
+	    'description' => 'You can also specify your video description here.',
+	    'tags'	      => ['foo', 'bar', 'baz'],
+	    'category_id' => 10,
+	    'filesize'	  => get_file_size($fullPathToVideo)
 ]);
 
 return $video->getVideoId();
@@ -93,7 +92,7 @@ By default, video uploads are public. If you would like to change the privacy of
 For example, the below will upload the video as `unlisted`.
 
 ```php
-$video = Youtube::upload($fullPathToVideo, $params, 'unlisted');
+$video = Youtube::setAccessToken($accessToken)->upload($fullPathToVideo, $params, 'unlisted');
 ```
 
 ### Custom Thumbnail
@@ -103,7 +102,7 @@ If you would like to set a custom thumbnail for for upload, you can use the `wit
 ```php
 $fullpathToImage = storage_path('app/public/thumbnail.jpg');
 
-$video = Youtube::upload($fullPathToVideo, $params)->withThumbnail($fullpathToImage);
+$video = Youtube::setAccessToken($accessToken)->upload($fullPathToVideo, $params)->withThumbnail($fullpathToImage);
 
 return $youtube->getThumbnailUrl();
 ```
@@ -115,7 +114,7 @@ return $youtube->getThumbnailUrl();
 If you would like to delete a video, which of course is uploaded to your authorized channel, you will also have the ability to delete it:
 
 ```php
-Youtube::delete($videoId);
+Youtube::setAccessToken($accessToken)->delete($videoId);
 ```
 
 When deleting a video, it will check if exists before attempting to delete.
