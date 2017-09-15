@@ -1,6 +1,6 @@
 # Laravel/Lumen 5 - YouTube Video Upload
 
-###Fork of JoeDawson/youtube
+### Fork of JoeDawson/youtube
 
 1. remove session info as Lumen is stateless
 2. pass account tokens to methods to support multiple accounts
@@ -18,7 +18,7 @@ To install, add the following to composer.json
     ],
     "require": {
     	...
-    	"dawson/youtube": "tf4.0.1"
+    	"dawson/youtube": "d4.0.1"
     }
 ```
 
