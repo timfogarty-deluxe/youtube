@@ -6,6 +6,7 @@
 2. pass account tokens to methods to support multiple accounts
 3. remove database
 4. for uploads, pass in filesize as path may be remote
+5. add methods to create, modify, list, and delete playlists
 
 
 ## Installation
